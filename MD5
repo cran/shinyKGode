@@ -1,11 +1,12 @@
-e1cdce6b861a77c977cf2822b43fcd32 *DESCRIPTION
+770758ec61531e714f7bc734f8620f52 *DESCRIPTION
 949196830f4329c15dc88af5ab203819 *NAMESPACE
 b28524a98fa496600f86d4a8b76bb7e1 *R/run.R
 baaf49a01d430726aa1b8129669d3b05 *R/shinyKGode.R
-8d1250cbb23c48b2e9e91a3b91dd952c *README.md
+b8f6a2824417d0c92c0fdde4522881a1 *README.md
 ca26db461673855a4701d260a22119f3 *inst/application/global.R
 5db0785730911ad1f24b5a4ecebc2318 *inst/application/server.R
 35b68a589344dbf378e4312b9c50339f *inst/application/ui.R
 a37a89b8de405accf6ead4c6b8648f08 *inst/extdata/FHN.xml
 6b330e4d4feb82a7c001f6b4eaab4101 *inst/extdata/LotkaVolterra.xml
+5946cb2af0ef33ffbe24cd33492ef3dc *man/shinyKGode.Rd
 0785a79b6cfba12b87a33659fdb88b1d *man/startShinyKGode.Rd

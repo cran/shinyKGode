@@ -33,7 +33,7 @@ shiny::shinyUI(fluidPage(
                     shiny::hr(),
                     shiny::h3("Load Data"),
                     shiny::helpText((
-                        "Data should be in a CSV format with column headers. The first column is header is 'time', while other column headers are the individual states."
+                        "Data should be in a CSV format with column headers. The first column header is 'time', while other column headers are the individual states."
                     )
                     ),
                     shinyjs::disabled(shiny::fileInput(
@@ -133,7 +133,9 @@ shiny::shinyUI(fluidPage(
                     3,
                     shiny::h3("Inference Parameters"),
                     shiny::helpText(
-                        "Specify the kernel, the random seed, whether to use ODE regularisation, and the initial parameters for optimisation during inference."
+                        "Specify the kernel, the random seed, 
+                        the number of bootstrap replicates (to estimate parameter uncertainty),
+                        whether to use ODE regularisation, and the initial parameters for optimisation during inference."
                     ),
                     shiny::selectInput('ktype', "Kernel", kernelChoices),
                     shiny::numericInput(
@@ -141,6 +143,14 @@ shiny::shinyUI(fluidPage(
                         "Random Seed",
                         value = SEED,
                         min = -1,
+                        max = NA,
+                        step = 1
+                    ),
+                    shiny::numericInput(
+                        "K",
+                        "No. of Bootstrap Replicates",
+                        value = 0,
+                        min = 0,
                         max = NA,
                         step = 1
                     ),
@@ -184,25 +194,43 @@ shiny::shinyUI(fluidPage(
                     6,
                     shiny::h3("Results"),
                     shiny::verbatimTextOutput("methodTextOutput"),
-                    shiny::conditionalPanel(condition = "input.plot_ode == 'initial'",
+                    # show the initial parameter plot
+                    shiny::conditionalPanel(condition = "input.plot_ode_initial && !input.plot_ode_inferred",
                                             shiny::plotOutput('interpPlotInitial', height='auto')),
-                    shiny::conditionalPanel(condition = "input.plot_ode == 'inferred'",
+                    # show the inferred parameter plot
+                    shiny::conditionalPanel(condition = "!input.plot_ode_initial && input.plot_ode_inferred",
                                             shiny::plotOutput('interpPlotInferred', height='auto')),
-                    shinyjs::hidden(radioButtons(
-                        "plot_ode",
-                        "Plot solved ODE using",
-                        c(
-                            "Inferred parameters" = "inferred",
-                            "Initial parameters" = "initial"
-                        ),
-                        inline = T
-                    )),
-                    shiny::conditionalPanel(condition = "input.plot_ode == 'initial'",
-                                            shiny::tableOutput('initialParams')),
-                    shiny::conditionalPanel(condition = "input.plot_ode == 'inferred'",
-                                            shiny::tableOutput('inferredParams')),
+                    # show the combined plot
+                    shiny::conditionalPanel(condition = "input.plot_ode_initial && input.plot_ode_inferred",
+                                            shiny::plotOutput('interpPlotInitialInferred', height='auto')),
                     shinyjs::hidden(
-                        shiny::downloadButton('downloadParamsBtn', 'Download Inferred Parameters')
+                        shiny::tags$div(id="plot_ode",
+                            shiny::h5('Plot solved ODE using'),
+                            shiny::checkboxInput(
+                               "plot_ode_inferred", 
+                               "Inferred parameters", 
+                               TRUE
+                            ),
+                            shiny::checkboxInput(
+                               "plot_ode_initial", 
+                               "True parameters", 
+                               FALSE
+                            )
+                        )
+                    ),
+                    shiny::hr(),
+                    shiny::h5('ODE parameters'),
+                    shiny::conditionalPanel(condition = "input.plot_ode_initial && !input.plot_ode_inferred",
+                                            shiny::tableOutput('initialParams')
+                    ),
+                    shiny::conditionalPanel(condition = "!input.plot_ode_initial && input.plot_ode_inferred",
+                                            shiny::tableOutput('inferredParams')
+                    ),
+                    shiny::conditionalPanel(condition = "input.plot_ode_initial && input.plot_ode_inferred",
+                                            shiny::tableOutput('initialInferredParams')
+                    ),
+                    shiny::conditionalPanel(condition = "input.plot_ode_inferred",
+                                            shiny::downloadButton('downloadParamsBtn', 'Download Inferred Parameters')
                     )                    
                 )
             ),

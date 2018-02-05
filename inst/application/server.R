@@ -220,7 +220,7 @@ shiny::shinyServer(function(input, output, session) {
                 pp[[i]] = ggplot2::ggplot(data = plot_df, ggplot2::aes(x =
                                                                            time, y = value)) +
                     ggplot2::geom_point(data = subset(plot_df, state == species),
-                                        color = "red") +
+                                        color = "red", size = 2) +
                     ggplot2::ggtitle(title) +
                     ggplot2::xlab("Time") +
                     ggplot2::ylab("Value") +
@@ -260,6 +260,7 @@ shiny::shinyServer(function(input, output, session) {
         shinyjs::show('generateDataPlot')
         shinyjs::hide('interpPlotInitial')
         shinyjs::hide('interpPlotInferred')
+        shinyjs::hide('interpPlotInitialInferred')
         shinyjs::hide('plot_ode')
         shinyjs::hide('downloadParamsBtn')
         shinyjs::hide('initialParams')
@@ -337,7 +338,7 @@ shiny::shinyServer(function(input, output, session) {
         initial_params = getValues(input, 'param_val', model$num_params, model$params)
         inferred_params = infer_res$ode_par
         names(inferred_params) = names(initial_params)
-        
+
         xinit = as.matrix(getValues(
             input,
             'initial_cond',
@@ -349,23 +350,61 @@ shiny::shinyServer(function(input, output, session) {
         
         initial_df = data.frame(parameters = initial_params)
         inferred_df = data.frame(parameters = inferred_params)
+        colnames(initial_df) = 'true'
+        colnames(inferred_df) = 'inferred'
+
+        if (input$K > 0) {
+            update_status(progress, 'Bootstrapping', 'start', 1.0)
+            quantiles = bootstrap(kkk, y_no, input$ktype, input$K, infer_res$ode_par, infer_res$intp_data, infer_res$www)
+            update_status(progress, 'Bootstrapping', 'inc', 1.0)
+            quantiles_df = data.frame(t(quantiles))
+            quantiles_df = data.frame(quantiles_df$X25, quantiles_df$X75)
+            colnames(quantiles_df) = c('lower_quartile', 'upper_quartile')
+            rownames(quantiles_df)= rownames(initial_df)
+            inferred_df = cbind(inferred_df, quantiles_df)        
+        } 
+                
         # rownames(inferred_df) = model$params
         values$initial_df = initial_df
         values$inferred_df = inferred_df
+        values$initial_inferred_df = cbind(initial_df, inferred_df)
         
         ### plot the interpolation fit ###
-        output$interpPlotInitial = get_interpolation_plot(values$infer_res, time, solved_initial, model$species)
+        marker_size = 1.5
+        output$interpPlotInitial = get_interpolation_plot(values$infer_res, 
+                                                          time, 
+                                                          solved_initial, 
+                                                          model$species,
+                                                          "dashed",
+                                                          "Solved (initial)",
+                                                          "grey",
+                                                          marker_size)
         output$interpPlotInferred = get_interpolation_plot(values$infer_res,
                                                            time,
                                                            solved_inferred,
-                                                           model$species)
+                                                           model$species,
+                                                           "dashed",
+                                                           "Solved (inferred)",
+                                                           "grey",
+                                                           marker_size)
+        output$interpPlotInitialInferred = get_interpolation_plot_combined(
+            values$infer_res,
+            time, 
+            solved_initial, 
+            solved_inferred,
+            model$species,
+            marker_size
+        )
         
         ### show the tables of initial & inferred parameters ###
+        output$inferredParams = shiny::renderTable({
+            values$inferred_df
+        }, rownames = T, digits = 6)
         output$initialParams = shiny::renderTable({
             values$initial_df
         }, rownames = T, digits = 6)
-        output$inferredParams = shiny::renderTable({
-            values$inferred_df
+        output$initialInferredParams = shiny::renderTable({
+            values$initial_inferred_df
         }, rownames = T, digits = 6)
         
         # set the download handler for the inferred parameters
@@ -394,6 +433,7 @@ shiny::shinyServer(function(input, output, session) {
         
         shinyjs::show('interpPlotInitial')
         shinyjs::show('interpPlotInferred')
+        shinyjs::show('interpPlotInitialInferred')
         shinyjs::show('plot_ode')
         shinyjs::show('downloadParamsBtn')
         shinyjs::show('initialParams')
@@ -407,10 +447,12 @@ shiny::shinyServer(function(input, output, session) {
         
     })
     
-    get_interpolation_plot = function(res, time, solved, species) {
+    get_interpolation_plot = function(res, time, solved, species, linetype, label, color, marker_size) {
         return(shiny::renderPlot({
+
             solved_yode = solved$y_ode
             solved_t = solved$t
+
             pp = list()
             for (i in 1:res$nst) {
                 intp_x = res$intp_x[[i]]
@@ -453,7 +495,7 @@ shiny::shinyServer(function(input, output, session) {
                                             x = time,
                                             y = value,
                                             colour = 'c1'
-                                        )) +
+                                        ), size = marker_size+0.5) +
                     ggplot2::geom_line(
                         data = temp1,
                         ggplot2::aes(
@@ -461,7 +503,7 @@ shiny::shinyServer(function(input, output, session) {
                             y = value,
                             colour = 'c2'
                         ),
-                        size = 1
+                        size = marker_size
                     ) +
                     ggplot2::geom_line(
                         data = temp3,
@@ -470,8 +512,8 @@ shiny::shinyServer(function(input, output, session) {
                             y = value,
                             colour = 'c3'
                         ),
-                        size = 1,
-                        linetype = "dashed"
+                        size = marker_size-0.5,
+                        linetype = linetype
                     ) +
                     ggplot2::ggtitle(title) +
                     ggplot2::theme_bw() + ggplot2::theme(text = ggplot2::element_text(size =
@@ -481,12 +523,12 @@ shiny::shinyServer(function(input, output, session) {
                         values = c(
                             c1 = "red",
                             c2 = "blue",
-                            c3 = "grey"
+                            c3 = color
                         ),
                         labels = c(
                             c1 = "Observed",
                             c2 = "Interpolated",
-                            c3 = "Solved"
+                            c3 = label
                         )
                     ) +
                     ggplot2::expand_limits(x = 0) + ggplot2::scale_x_continuous(expand = c(0, 0))
@@ -501,7 +543,130 @@ shiny::shinyServer(function(input, output, session) {
         })
         
     )}
-    
+
+    get_interpolation_plot_combined = function(res, time, 
+                                               solved_initial, solved_inferred, 
+                                               species, marker_size) {
+        return(shiny::renderPlot({
+            
+            solved_initial_yode = solved_initial$y_ode
+            solved_inferred_yode = solved_inferred$y_ode
+            solved_initial_t = solved_initial$t
+            solved_inferred_t = solved_inferred$t
+
+            pp = list()
+            for (i in 1:res$nst) {
+                intp_x = res$intp_x[[i]]
+                intp_y = res$intp_y[[i]]
+                data_x = res$data_x[[i]]
+                data_y = res$data_y[[i]]
+                solved_initial_y = solved_initial_yode[i, ]
+                solved_inferred_y = solved_inferred_yode[i, ]
+                solved_initial_x = solved_initial_t
+                solved_inferred_x = solved_inferred_t
+                
+                time = intp_x
+                plot_df1 = data.frame(time)
+                plot_df1$interpolated = intp_y
+                plot_df1 = reshape2::melt(plot_df1,
+                                          id.vars = 'time',
+                                          variable.name = 'type')
+                
+                time = data_x
+                plot_df2 = data.frame(time)
+                plot_df2$observed = data_y
+                plot_df2 = reshape2::melt(plot_df2,
+                                          id.vars = 'time',
+                                          variable.name = 'type')
+                
+                time = solved_initial_x
+                plot_df3 = data.frame(time)
+                plot_df3$solved_initial = solved_initial_y
+                plot_df3 = reshape2::melt(plot_df3,
+                                          id.vars = 'time',
+                                          variable.name = 'type')
+
+                time = solved_inferred_x
+                plot_df4 = data.frame(time)
+                plot_df4$solved_inferred = solved_inferred_y
+                plot_df4 = reshape2::melt(plot_df4,
+                                          id.vars = 'time',
+                                          variable.name = 'type')
+                                
+                plot_df = rbind(plot_df1, plot_df2, plot_df3, plot_df4)
+                temp2 = subset(plot_df, type == 'observed')
+                temp1 = subset(plot_df, type == 'interpolated')
+                temp3 = subset(plot_df, type == 'solved_initial')
+                temp4 = subset(plot_df, type == 'solved_inferred')
+                
+                title = paste('State', species[i], sep = ' ')
+                g = ggplot2::ggplot() +
+                    ggplot2::geom_point(data = temp2,
+                                        ggplot2::aes(
+                                            x = time,
+                                            y = value,
+                                            colour = 'c1'
+                                        ), size = marker_size+0.5) +
+                    ggplot2::geom_line(
+                        data = temp1,
+                        ggplot2::aes(
+                            x = time,
+                            y = value,
+                            colour = 'c2'
+                        ),
+                        size = marker_size
+                    ) +
+                    ggplot2::geom_line(
+                        data = temp3,
+                        ggplot2::aes(
+                            x = time,
+                            y = value,
+                            colour = 'c3'
+                        ),
+                        size = marker_size-0.5,
+                        linetype = "dashed"
+                    ) +
+                    ggplot2::geom_line(
+                        data = temp4,
+                        ggplot2::aes(
+                            x = time,
+                            y = value,
+                            colour = 'c4'
+                        ),
+                        size = marker_size-0.5,
+                        linetype = "dashed"
+                    ) +
+                    ggplot2::ggtitle(title) +
+                    ggplot2::theme_bw() + ggplot2::theme(text = ggplot2::element_text(size =
+                                                                                          20)) +
+                    ggplot2::scale_colour_manual(
+                        name = "Legend",
+                        values = c(
+                            c1 = "red",
+                            c2 = "blue",
+                            c3 = "grey",
+                            c4 = "purple"
+                        ),
+                        labels = c(
+                            c1 = "Observed",
+                            c2 = "Interpolated",
+                            c3 = "Solved (Initial)",
+                            c4 = "Solved (Inferred)"
+                        )
+                    ) +
+                    ggplot2::expand_limits(x = 0) + ggplot2::scale_x_continuous(expand = c(0, 0))
+                
+                pp[[i]] = g
+                
+            }
+            gridExtra::grid.arrange(grobs=pp, ncol=1)
+            
+        }, height=function() {
+            200 * length(species)
+        })
+        
+        )}
+        
     getDiagnosticPlot = function(res) {
         return(renderPlot({
             objectives = res$objectives
@@ -638,7 +803,8 @@ LV_initial_values = function() {
     
     tinterv = c(0, 30)
     pick = 2
-    noise_var = 0.000625
+    # noise_var = 0.000625
+    noise_var = 0.1
     
     peod = c(17, 17) #8#9.7     ## the guessing period
     eps = 2          ## the standard deviation of period
@@ -693,7 +859,7 @@ FN_initial_values = function() {
     tinterv = c(0, 10)
     pick = 2
     noise_var = 0.01
-    
+
     peod = c(8, 8.5) #8#9.7     ## the guessing period
     eps = 1          ## the standard deviation of period
     
@@ -779,7 +945,8 @@ BP_initial_values = function() {
     
     tinterv = c(0, 100)
     pick = 2
-    noise_var = 0.000289 # 0.017^2
+    # noise_var = 0.000289 # 0.017^2
+    noise_var = 0.001
     
     peod = c(200, 200, 200, 200, 200)   ## the guessing period for each state  user defined
     eps = 20          ## the standard deviation of period  user defined
@@ -1230,12 +1397,14 @@ gradient_match <- function(kkk, tinterv, y_no, ktype, progress) {
     intp_y = list()
     data_x = list()
     data_y = list()
+    intp_data = list()
     for (i in 1:length(bbb)) {
         # print(bbb[[i]])
         intp_x[[i]] = grids
         intp_y[[i]] = bbb[[i]]$predictT(grids)$pred
         data_x[[i]] = bbb[[i]]$t
         data_y[[i]] = bbb[[i]]$y
+        intp_data[[i]] = bbb[[i]]$predictT(bbb[[i]]$t)$pred
     }
     
     objectives = parse_objectives(output1)
@@ -1249,9 +1418,11 @@ gradient_match <- function(kkk, tinterv, y_no, ktype, progress) {
             data_x = data_x,
             data_y = data_y,
             warpfun_x = NULL,
-            warpfun_y = NULL,
+            warpfun_y = data_x,
             warpfun_pred = NULL,
-            nst = length(intp_x)
+            nst = length(intp_x),
+            intp_data = intp_data,
+            www = NULL
         )
     )
     
@@ -1282,11 +1453,13 @@ gradient_match_third_step <-
         intp_y = list()
         data_x = list()
         data_y = list()
+        intp_data = list()
         for (i in 1:length(res$rk3$rk)) {
             intp_x[[i]] = grids
             intp_y[[i]] = res$rk3$rk[[i]]$predictT(grids)$pred
             data_y[[i]] = res$rk3$rk[[i]]$y
             data_x[[i]] = res$rk3$rk[[i]]$t
+            intp_data[[i]] = res$rk3$rk[[i]]$predictT(bbb[[i]]$t)$pred
         }
         
         output = c(output1, output2)
@@ -1301,9 +1474,11 @@ gradient_match_third_step <-
                 data_x = data_x,
                 data_y = data_y,
                 warpfun_x = NULL,
-                warpfun_y = NULL,
+                warpfun_y = data_x,
                 warpfun_pred = NULL,
-                nst = length(intp_x)
+                nst = length(intp_x),
+                intp_data = intp_data,
+                www = NULL
             )
         )
         
@@ -1349,6 +1524,7 @@ warping <-
         warpfun_x = list()
         warpfun_y = list()
         warpfun_pred = list()
+        intp_data = list()
         for (i in 1:length(bbbw)) {
             wgrids = wfun[[i]]$predictT(grids)$pred ## denser grid in warped domain
             intp_x[[i]] = grids
@@ -1358,6 +1534,7 @@ warping <-
             warpfun_x[[i]] = kkk$t
             warpfun_y[[i]] = resmtest[i, ]
             warpfun_pred[[i]] = bbbw[[i]]$predict()$pred
+            intp_data[[i]] = bbbw[[i]]$predictT(resmtest[i, ])$pred
         }
         
         output = c(output1, output2, output3)
@@ -1374,7 +1551,9 @@ warping <-
                 warpfun_x = warpfun_x,
                 warpfun_y = warpfun_y,
                 warpfun_pred = warpfun_pred,
-                nst = length(intp_x)
+                nst = length(intp_x),
+                intp_data = intp_data,
+                www = www
             )
         )
         
@@ -1435,6 +1614,7 @@ third_step_warping <-
         warpfun_x = list()
         warpfun_y = list()
         warpfun_pred = list()
+        intp_data = list()
         for (i in 1:length(res$rk3$rk)) {
             wgrid = wfun[[i]]$predictT(grids)$pred
             intp_x[[i]] = grids
@@ -1444,6 +1624,7 @@ third_step_warping <-
             warpfun_x[[i]] = kkk$t
             warpfun_y[[i]] = resmtest[i, ]
             warpfun_pred[[i]] = bbbw[[i]]$predict()$pred
+            intp_data[[i]] = res$rk3$rk[[i]]$predictT(resmtest[i, ])$pred
         }
         
         output = c(output1, output2, output3, output4, output5)
@@ -1460,12 +1641,60 @@ third_step_warping <-
                 warpfun_x = warpfun_x,
                 warpfun_y = warpfun_y,
                 warpfun_pred = warpfun_pred,
-                nst = length(intp_x)
+                nst = length(intp_x),
+                intp_data = intp_data,
+                www = www
             )
         )
         
         
     }
+
+bootstrap <- function(kkk, y_no, ktype, K, ode_par, intp_data, www) {
+    intp = do.call(rbind, intp_data) # convert from list of lists to array    
+    ode_pars=c()
+    for ( i in 1:K ) 
+    {
+        # compute residuals
+        residuals = kkk$y_ode - intp
+        
+        # sample with replacement
+        resampled_residuals = t(apply(residuals, 1, function(row) sample(row, length(row), replace=TRUE)))
+        
+        # add to interpolation
+        resampled_data = intp + resampled_residuals
+        
+        # make a new kkk object with the resampled data        
+        new_kkk = KGode::ode$new(1, fun=kkk$ode_fun, grfun=kkk$gr_lNODE, t=kkk$t,
+                          ode_par=ode_par, y_ode=resampled_data)
+        
+        # run gradient matching again
+        if(is.null(www)) {
+            x = KGode::rkg(new_kkk, t(resampled_data), ktype)
+        } else { 
+            ### learn interpolates in warped time domain
+            intpl = c()
+            gradl = c()
+            nst = nrow(kkk$y_ode)
+            for( st in 1:nst) {
+                new_rbf= KGode::RBF$new(1)
+                wk = KGode::rkhs$new(resampled_data[st,], www$wtime[st,], rep(1,n_o), 1, new_rbf)
+                wk$skcross(5)    
+                intpl = rbind(intp, wk$predict()$pred)
+                gradl = rbind(gradl, wk$predict()$grad*www$dtilda[st,])
+            }
+            inipar = rep(0.1, length(new_kkk$ode_par))
+            new_kkk$optim_par(inipar, intpl, gradl)
+        }
+        
+        new_ode_par = new_kkk$ode_par
+        ode_pars = rbind(ode_pars, new_ode_par)
+    }
+    
+    # compute interquartiles range
+    quartiles = apply(ode_pars, 2, quantile)
+    return(quartiles)
+}
 
 solve_ode = function(kkk, params, xinit, tinterv) {
     solved = kkk$solve_ode(par_ode = params, xinit, tinterv)
